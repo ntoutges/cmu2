@@ -6,18 +6,6 @@ from intensities import _intensities
 from rules import *
 import asciiDefs
 
-# _aligns = {
-#   "center": (0,0),
-#   "left": ( -0.5,0),
-#   "right": (0.5,0),
-#   "top": (),
-#   "bottom": (),
-#   "left-top": (),
-#   "left-bottom": (),
-#   "right-top": (),
-#   "right-bottom": ()
-# }
-
 class Canvas:
 
   def __init__(self, size, *, debug=False):
@@ -25,16 +13,20 @@ class Canvas:
     self.doClear = True
     self.__prevRender__ = ""
     self.subPx = 1
+    self.superPx = 1
+
+    self.yStep = 400 * 2 / (self.size * self.subPx)
 
     self.mapSet = asciiDefs.standard1
 
     if debug:
       self.mapSet = asciiDefs.debug1
 
-  # note to self: NEEDS optimization  
+  # TODO: NEEDS optimization  
   def __draw__(self):
     buffer = []
     yStep = 400 * 2 / (self.size * self.subPx)
+    self.yStep = yStep
     xStep = 400 / (self.size * self.subPx)
 
     app.group.__resolveConflicts__()
@@ -57,19 +49,21 @@ class Canvas:
               total += buffer[i+x][j+y]
           avgBuffer[-1].append(total / subPxSq)
       buffer = avgBuffer
+    
     render = ""
     for row in buffer:
+      subRender = ""
       for col in row:
         for set in self.mapSet:
           if col >= set[0]:
-            render += set[1]
+            subRender += set[1] * self.superPx
             break
         else:
           if (self.mapSet[-1][1] == "\\s"):
-            render += str(int(col))
+            subRender += str(int(col)) * self.superPx
           else:
-            render += self.mapSet[-1][1]
-      render += "\n"
+            subRender += self.mapSet[-1][1] * self.superPx
+      render += (subRender + "\n") * self.superPx
 
     if render != self.__prevRender__:
       if self.doClear:
@@ -96,6 +90,21 @@ class Shape:
 
     self.__setProps__()
 
+    align = kwargs.get("align", "center")
+    ValidAlign.validityCheck(align, "in Shape.align")
+
+    # if cx == 0:
+      # raise ValueError("stop")
+    if "left" in align:
+      self.left = self.centerX
+    elif "right" in align:
+      self.right = self.centerY
+    if "top" in align:
+      self.top = self.centerX
+    elif "bottom" in align:
+      self.bottom = self.centerX
+    self.__resolveConflicts__()
+
     if (kwargs.get("_add", True)):
       app.group.add(self)
 
@@ -104,9 +113,6 @@ class Shape:
 
     ValidColor.validityCheck(self.fill, "Shape.fill")
     ValidNum0To100.validityCheck(self.opacity, "Shape.opacity")
-
-    self._cos = math.cos(self.rotateAngle * math.pi / 180)
-    self._sin = math.sin(self.rotateAngle * math.pi / 180)
 
     self._fill = _intensities.get(self.fill, 0)
 
@@ -119,7 +125,8 @@ class Shape:
       "left": self.left,
       "fill": self.fill,
       "rotateAngle": self.rotateAngle,
-      "opacity": self.opacity
+      "opacity": self.opacity,
+      "updateFlag": False
     }
 
   def __setDims__(self):
@@ -127,6 +134,9 @@ class Shape:
     self.bottom = self.centerY
     self.left = self.centerX
     self.right = self.centerX
+
+    self._cos = math.cos(self.rotateAngle * math.pi / 180)
+    self._sin = math.sin(self.rotateAngle * math.pi / 180)
 
   def __resolveConflicts__(self):
     old = self.__old__
@@ -151,7 +161,7 @@ class Shape:
     if old["rotateAngle"] != self.rotateAngle:
       modified = True
 
-    if modified:
+    if modified or old["updateFlag"]:
       self.__setProps__()
 
   def __getPxAt__(x, y):
@@ -307,6 +317,9 @@ class Circle(Shape):
     self.left = self.centerX - self.radius
     self.right = self.centerX + self.radius
 
+    self._cos = math.cos(self.rotateAngle * math.pi / 180)
+    self._sin = math.sin(self.rotateAngle * math.pi / 180)
+
   def __getPxAt__(self, x, y):
     if (x - self.centerX)**2 + (y - self.centerY)**2 <= self.radius**2:
       return self._fill, (self.opacity / 100)
@@ -352,9 +365,9 @@ class Oval(Shape):
 
 class Rect(Shape):
 
-  def __init__(self, /, x, y, width, height, **kwargs):
-    cx = x + width / 2
-    cy = y + height / 2
+  def __init__(self, /, cx, cy, width, height, **kwargs):
+    # cx = x + width / 2
+    # cy = y + height / 2
 
     self.width = width
     self.height = height
@@ -362,6 +375,7 @@ class Rect(Shape):
     ValidPositiveNum.validityCheck(width, "Rect.width")
     ValidPositiveNum.validityCheck(height, "Rect.height")
     
+    kwargs.setdefault("align", "left-top")
     super().__init__(cx, cy, **kwargs)
 
   def __setProps__(self):
@@ -374,9 +388,8 @@ class Rect(Shape):
     self.left = self.centerX - self.width / 2
     self.right = self.centerX + self.width / 2
 
-  def __resolveConflicts__(self):
-
-    super().__resolveConflicts__()
+    self._cos = math.cos(self.rotateAngle * math.pi / 180)
+    self._sin = math.sin(self.rotateAngle * math.pi / 180)
 
   def __getPxAt__(self, x, y):
     # self.__resolveConflicts__()
@@ -386,6 +399,57 @@ class Rect(Shape):
     width2 = self.width * 0.5
     height2 = self.height * 0.5
 
+    if -width2 <= x_m <= width2 and -height2 <= y_m <= height2:
+      return self._fill, (self.opacity / 100)
+    return 0, 0
+
+class Line(Shape):
+  def __init__(self, x1,y1, x2,y2, **kwargs):
+    self.x1 = x1
+    self.x2 = x2
+    self.y1 = y1
+    self.y2 = y2
+
+    super().__init__(x1,x2, **kwargs)
+  
+  def __resolveConflicts__(self):
+    if self.__old__["x1"] != self.x1 or self.__old__["x2"] != self.x2 or self.__old__["y1"] != self.y1 or self.__old__["y2"] != self.y2:
+      self.__old__["updateFlag"] = True
+    super().__resolveConflicts__()
+
+  def __setProps__(self):
+    super().__setProps__()
+    
+    self.__old__["x1"] = self.x1
+    self.__old__["x2"] = self.x2
+    self.__old__["y1"] = self.y1
+    self.__old__["y2"] = self.y2
+
+  def __setDims__(self):
+    self.left = min(self.x1, self.x2)
+    self.right = max(self.x1, self.x2)
+    self.top = min(self.y1, self.y2)
+    self.bottom = max(self.y1, self.y2)
+
+    self._length = ((self.x1 - self.x2)**2 + (self.y1 - self.y2) ** 2) ** 0.5
+
+    self._angleOff = math.pi * 0.5
+    if self.x1 != self.x2:
+      self._angleOff = math.atan( (self.y2-self.y1) / (self.x1-self.x2) )
+
+    self._cos = math.cos(self.rotateAngle * math.pi / 180 - self._angleOff)
+    self._sin = math.sin(self.rotateAngle * math.pi / 180 - self._angleOff)
+    
+    self.centerX = (self.x1 + self.x2) / 2
+    self.centerY = (self.y1 + self.y2) / 2
+
+  def __getPxAt__(self, x, y):
+    x_m = (x - self.centerX) * self._cos + (y - self.centerY) * self._sin
+    y_m = (y - self.centerY) * self._cos - (x - self.centerX) * self._sin
+
+    width2 = self._length * 0.5
+    height2 = app.__canvas__.yStep * 0.5
+    
     if -width2 <= x_m <= width2 and -height2 <= y_m <= height2:
       return self._fill, (self.opacity / 100)
     return 0, 0
@@ -401,9 +465,9 @@ class App:
 
     self.drawingsPerSecond = 5
 
-    self.__timers__ = [0, 0]
-    self.__canvas__ = Canvas(100, debug=False)
-    self.__stepTimeout__ = 1
+    self.__timers__ = [0,0,0]
+    self.__canvas__ = Canvas(50, debug=False)
+    self.__stepTimeout__ = 100
 
   def __run__(self, /, looper=None):
     for i, item in enumerate(self.__timers__):
@@ -412,9 +476,15 @@ class App:
     while not self.paused:
       now = time.time()
 
-      while self.__timers__[0] < now and not self.paused and not (looper is None):
-        looper()
-        self.__timers__[0] += 1 / self.__getSPS__()
+      if self.__timers__[0] < now:
+        self.__timers__[2] = now + self.__stepTimeout__
+        while self.__timers__[0] < now and not self.paused and not (looper is None):
+          looper()
+          self.__timers__[0] += 1 / self.__getSPS__()
+
+          if self.__timers__[2] < time.time():
+            self.__timers__[0] = time.time()
+            break
 
       if self.__timers__[1] < now:
         self.__canvas__.__draw__()

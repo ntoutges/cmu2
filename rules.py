@@ -33,7 +33,8 @@ class ValidAlign:
 
   @staticmethod
   def validityCheck(value, name):
-    if not (value == "center" or value == "left" or value == "right" or value, or value=="")
+    if not value in ("center", "left", "right", "top", "bottom", "left-top", "left-bottom", "right-top", "right-bottom"):
+      raise ValueError( f"{name}, {value} is not a legal align value" )
 
 class ValidClass:
 
